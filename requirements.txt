@@ -4,5 +4,4 @@ numpy
 requests
 pillow
 torch
-torchvision
 transformers

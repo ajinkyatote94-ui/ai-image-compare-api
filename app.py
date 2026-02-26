@@ -4,55 +4,38 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 from fastapi import FastAPI
 from pydantic import BaseModel
 import torch
-import requests
-from PIL import Image
-from io import BytesIO
 from transformers import CLIPProcessor, CLIPModel
+from PIL import Image
+import requests
+from io import BytesIO
 import numpy as np
 
 app = FastAPI()
 
-# -------------------------------------------------
-# LOAD CLIP MODEL (Best for image similarity)
-# -------------------------------------------------
-model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+device = "cpu"
 
-model.eval()
+model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
+processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
 
 class ImageRequest(BaseModel):
     imageUrl1: str
     imageUrl2: str
 
-
-# -------------------------------------------------
-# GET IMAGE EMBEDDING
-# -------------------------------------------------
-def get_embedding(image_url: str):
+def get_embedding(image_url):
     response = requests.get(image_url, timeout=10)
     image = Image.open(BytesIO(response.content)).convert("RGB")
 
-    inputs = processor(images=image, return_tensors="pt")
+    inputs = processor(images=image, return_tensors="pt").to(device)
 
     with torch.no_grad():
         embedding = model.get_image_features(**inputs)
 
-    # Normalize to unit vector
     embedding = embedding / embedding.norm(p=2, dim=-1, keepdim=True)
-
     return embedding[0].cpu().numpy()
 
-
-# -------------------------------------------------
-# COSINE SIMILARITY (since normalized → dot = cosine)
-# -------------------------------------------------
 def cosine_similarity(a, b):
-    return float(np.dot(a, b))
+    return np.dot(a, b)
 
-
-# -------------------------------------------------
-# IMAGE COMPARISON API
-# -------------------------------------------------
 @app.post("/compare-images/")
 async def compare_images(data: ImageRequest):
     try:
@@ -61,28 +44,16 @@ async def compare_images(data: ImageRequest):
 
         similarity = cosine_similarity(emb1, emb2)
 
-        # -----------------------------
-        # STRICT SIMILARITY CLEANING
-        # -----------------------------
-
-        # Remove negative similarities
-        similarity = max(0.0, similarity)
-
-        # HARD THRESHOLD
-        if similarity < 0.20:
-            image_points = 0.0
+        # Make scoring stricter
+        if similarity < 0.3:
+            image_points = 0
         else:
-            # Square to penalize weak matches
-            similarity = similarity ** 2
+            image_points = float((similarity - 0.3) / 0.7 * 30)
 
-            # Scale to 30 points max
-            image_points = similarity * 30
-
-        # Final clamp
-        image_points = min(image_points, 30.0)
+        image_points = max(0, min(30, image_points))
 
         return {
-            "similarity": round(similarity, 4),
+            "similarity": float(similarity),
             "imagePoints": round(image_points, 2)
         }
 
