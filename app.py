@@ -72,17 +72,26 @@ async def compare_images(data: ImageRequest):
 
         similarity = cosine_similarity(emb1, emb2)
 
-        # 🔥 SAFE & REALISTIC SCORING
-        # EfficientNet usually outputs:
-        # Different objects: 0.1 – 0.3
-        # Same object: 0.35 – 0.7
-        # Identical image: 0.8+
+        # --------------------------------------------------
+        # SAFE & TUNED SCORING (MAX 25)
+        # --------------------------------------------------
 
-        # Smooth curve without hard cutoff
-        image_points = (similarity ** 2) * 30
+        if similarity < 0.40:
+            image_points = 0
 
-        # Clamp properly
-        image_points = float(np.clip(image_points, 0, 30))
+        elif similarity < 0.55:
+            # 0 – 8 points
+            image_points = (similarity - 0.40) / 0.15 * 8
+
+        elif similarity < 0.75:
+            # 8 – 20 points
+            image_points = 8 + (similarity - 0.55) / 0.20 * 12
+
+        else:
+            # 20 – 25 points
+            image_points = 20 + (similarity - 0.75) / 0.25 * 5
+
+        image_points = float(np.clip(image_points, 0, 25))
 
         return {
             "similarity": round(similarity, 4),
