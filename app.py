@@ -67,30 +67,38 @@ def cosine_similarity(a, b):
 @app.post("/compare-images/")
 async def compare_images(data: ImageRequest):
     try:
-        emb1 = get_embedding(data.imageUrl1)
-        emb2 = get_embedding(data.imageUrl2)
+        # ---------- Load and resize raw images ----------
+        def load_image(url):
+            response = requests.get(url, timeout=10)
+            img = Image.open(BytesIO(response.content)).convert("RGB")
+            img = img.resize((224, 224))
+            return np.array(img).astype("float32")
 
-        similarity = cosine_similarity(emb1, emb2)
+        img1 = load_image(data.imageUrl1)
+        img2 = load_image(data.imageUrl2)
 
-        # --------------------------------------------------
-        # SAFE & TUNED SCORING (MAX 25)
-        # --------------------------------------------------
+        # ---------- Quick pixel similarity check ----------
+        pixel_diff = np.mean(np.abs(img1 - img2))
 
-        if similarity < 0.40:
-            image_points = 0
-
-        elif similarity < 0.55:
-            # 0 – 8 points
-            image_points = (similarity - 0.40) / 0.15 * 8
-
-        elif similarity < 0.75:
-            # 8 – 20 points
-            image_points = 8 + (similarity - 0.55) / 0.20 * 12
-
+        if pixel_diff < 1:  
+            # Almost identical image
+            similarity = 1.0
         else:
-            # 20 – 25 points
-            image_points = 20 + (similarity - 0.75) / 0.25 * 5
+            # ---------- EfficientNet embedding ----------
+            def get_embedding(img_array):
+                img = tf.keras.applications.efficientnet.preprocess_input(img_array)
+                img = np.expand_dims(img, axis=0)
+                emb = model.predict(img, verbose=0)[0]
+                norm = np.linalg.norm(emb)
+                return emb if norm == 0 else emb / norm
 
+            emb1 = get_embedding(img1)
+            emb2 = get_embedding(img2)
+
+            similarity = float(np.dot(emb1, emb2))
+
+        # ---------- Smooth scoring (MAX 25) ----------
+        image_points = (similarity - 0.30) / 0.60 * 25
         image_points = float(np.clip(image_points, 0, 25))
 
         return {
