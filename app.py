@@ -3,36 +3,56 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 from fastapi import FastAPI
 from pydantic import BaseModel
-import numpy as np
+import torch
 import requests
 from PIL import Image
 from io import BytesIO
-import tensorflow as tf
+from transformers import CLIPProcessor, CLIPModel
+import numpy as np
 
 app = FastAPI()
 
-model = tf.keras.applications.MobileNetV2(
-    weights="imagenet",
-    include_top=False,
-    pooling="avg"
-)
+# -------------------------------------------------
+# LOAD CLIP MODEL (Best for image similarity)
+# -------------------------------------------------
+model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+
+model.eval()
 
 class ImageRequest(BaseModel):
     imageUrl1: str
     imageUrl2: str
 
-def get_embedding(image_url):
+
+# -------------------------------------------------
+# GET IMAGE EMBEDDING
+# -------------------------------------------------
+def get_embedding(image_url: str):
     response = requests.get(image_url, timeout=10)
-    img = Image.open(BytesIO(response.content)).convert("RGB").resize((224, 224))
-    img = np.array(img)
-    img = tf.keras.applications.mobilenet_v2.preprocess_input(img)
-    img = np.expand_dims(img, axis=0)
-    embedding = model.predict(img)
-    return embedding[0]
+    image = Image.open(BytesIO(response.content)).convert("RGB")
 
+    inputs = processor(images=image, return_tensors="pt")
+
+    with torch.no_grad():
+        embedding = model.get_image_features(**inputs)
+
+    # Normalize to unit vector
+    embedding = embedding / embedding.norm(p=2, dim=-1, keepdim=True)
+
+    return embedding[0].cpu().numpy()
+
+
+# -------------------------------------------------
+# COSINE SIMILARITY (since normalized → dot = cosine)
+# -------------------------------------------------
 def cosine_similarity(a, b):
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+    return float(np.dot(a, b))
 
+
+# -------------------------------------------------
+# IMAGE COMPARISON API
+# -------------------------------------------------
 @app.post("/compare-images/")
 async def compare_images(data: ImageRequest):
     try:
@@ -40,10 +60,29 @@ async def compare_images(data: ImageRequest):
         emb2 = get_embedding(data.imageUrl2)
 
         similarity = cosine_similarity(emb1, emb2)
-        image_points = float(max(0, similarity) * 30)
+
+        # -----------------------------
+        # STRICT SIMILARITY CLEANING
+        # -----------------------------
+
+        # Remove negative similarities
+        similarity = max(0.0, similarity)
+
+        # HARD THRESHOLD
+        if similarity < 0.20:
+            image_points = 0.0
+        else:
+            # Square to penalize weak matches
+            similarity = similarity ** 2
+
+            # Scale to 30 points max
+            image_points = similarity * 30
+
+        # Final clamp
+        image_points = min(image_points, 30.0)
 
         return {
-            "similarity": float(similarity),
+            "similarity": round(similarity, 4),
             "imagePoints": round(image_points, 2)
         }
 
