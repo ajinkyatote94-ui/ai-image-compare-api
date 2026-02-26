@@ -3,5 +3,4 @@ uvicorn
 numpy
 requests
 pillow
-torch
-transformers
+tensorflow==2.17.0

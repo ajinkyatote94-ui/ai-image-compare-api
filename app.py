@@ -3,19 +3,20 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 from fastapi import FastAPI
 from pydantic import BaseModel
-import torch
-from transformers import CLIPProcessor, CLIPModel
-from PIL import Image
-import requests
-from io import BytesIO
 import numpy as np
+import requests
+from PIL import Image
+from io import BytesIO
+import tensorflow as tf
 
 app = FastAPI()
 
-device = "cpu"
-
-model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
-processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+# 🔥 Better than MobileNetV2
+model = tf.keras.applications.EfficientNetB0(
+    weights="imagenet",
+    include_top=False,
+    pooling="avg"
+)
 
 class ImageRequest(BaseModel):
     imageUrl1: str
@@ -23,15 +24,17 @@ class ImageRequest(BaseModel):
 
 def get_embedding(image_url):
     response = requests.get(image_url, timeout=10)
-    image = Image.open(BytesIO(response.content)).convert("RGB")
+    img = Image.open(BytesIO(response.content)).convert("RGB")
+    img = img.resize((224, 224))
 
-    inputs = processor(images=image, return_tensors="pt").to(device)
+    img = np.array(img)
+    img = tf.keras.applications.efficientnet.preprocess_input(img)
+    img = np.expand_dims(img, axis=0)
 
-    with torch.no_grad():
-        embedding = model.get_image_features(**inputs)
+    embedding = model.predict(img, verbose=0)
+    embedding = embedding / np.linalg.norm(embedding)
 
-    embedding = embedding / embedding.norm(p=2, dim=-1, keepdim=True)
-    return embedding[0].cpu().numpy()
+    return embedding[0]
 
 def cosine_similarity(a, b):
     return np.dot(a, b)
@@ -44,13 +47,13 @@ async def compare_images(data: ImageRequest):
 
         similarity = cosine_similarity(emb1, emb2)
 
-        # Make scoring stricter
-        if similarity < 0.3:
+        # 🔥 Improved scoring curve
+        if similarity < 0.4:
             image_points = 0
         else:
-            image_points = float((similarity - 0.3) / 0.7 * 30)
+            image_points = ((similarity - 0.4) / 0.6) * 30
 
-        image_points = max(0, min(30, image_points))
+        image_points = float(np.clip(image_points, 0, 30))
 
         return {
             "similarity": float(similarity),
