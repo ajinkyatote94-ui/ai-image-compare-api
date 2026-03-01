@@ -1,7 +1,7 @@
-fastapi 
-uvicorn 
-pillow 
-requests 
-numpy 
-tensorflow 
+fastapi
+uvicorn
 sentence-transformers
+numpy
+pillow
+requests
+imagehash
