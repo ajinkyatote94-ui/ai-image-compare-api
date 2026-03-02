@@ -2,6 +2,6 @@ fastapi
 uvicorn
 sentence-transformers
 numpy
-pillow
 requests
-imagehash
+Pillow
+ImageHash

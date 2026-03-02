@@ -13,7 +13,7 @@ from sentence_transformers import SentenceTransformer
 app = FastAPI()
 
 # -------------------------------------------
-# LOAD TEXT MODEL (Free-tier safe)
+# LOAD TEXT MODEL
 # -------------------------------------------
 text_model = SentenceTransformer("all-MiniLM-L6-v2")
 
@@ -39,7 +39,7 @@ def text_similarity(text1, text2):
     return float(np.dot(embeddings[0], embeddings[1]))
 
 # -------------------------------------------
-# IMAGE HASH SIMILARITY (All vs All)
+# IMAGE HASH SIMILARITY
 # -------------------------------------------
 def get_image_hash(url):
     response = requests.get(url, timeout=6)
@@ -56,7 +56,7 @@ def get_best_image_similarity(images1, images2):
                 hash2 = get_image_hash(url2)
 
                 distance = hash1 - hash2
-                similarity = 1 - (distance / 64)  # normalize 0–1
+                similarity = 1 - (distance / 64)
 
                 if similarity > best_score:
                     best_score = similarity
@@ -84,7 +84,7 @@ async def compare_match(data: MatchRequest):
         )
         description_points = float(np.clip(desc_sim * 15, 0, 15))
 
-        # 3️⃣ IMAGES (Max 20)
+        # 3️⃣ IMAGES (Max 25)
         image_sim = 0
         image_points = 0
 
@@ -93,9 +93,14 @@ async def compare_match(data: MatchRequest):
                 data.imageUrls1,
                 data.imageUrls2
             )
-            image_points = float(np.clip(image_sim * 20, 0, 20))
+            image_points = float(np.clip(image_sim * 25, 0, 25))
 
-        total_points = title_points + description_points + image_points
+        # AI TOTAL = 55 MAX
+        total_points = (
+            title_points +
+            description_points +
+            image_points
+        )
 
         return {
             "titleSimilarity": round(title_sim, 4),
