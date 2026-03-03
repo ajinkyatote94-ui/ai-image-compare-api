@@ -1,7 +1,9 @@
 fastapi
 uvicorn
-sentence-transformers
+torch
+torchvision
+transformers
+ultralytics
+pillow
 numpy
-requests
-Pillow
-ImageHash
+scipy

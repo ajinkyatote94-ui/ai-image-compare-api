@@ -1,158 +1,86 @@
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-
-from fastapi import FastAPI
-from pydantic import BaseModel
-import numpy as np
-import requests
+import torch
+import torch.nn.functional as F
+from transformers import AutoImageProcessor, AutoModel
+from ultralytics import YOLO
 from PIL import Image
-from io import BytesIO
-import imagehash
-from sentence_transformers import SentenceTransformer
+import numpy as np
 
-app = FastAPI()
+# =========================
+# LOAD MODELS (ON STARTUP)
+# =========================
 
-# -------------------------------------------
-# LOAD TEXT MODEL (LIGHT + FAST)
-# -------------------------------------------
-text_model = SentenceTransformer("all-MiniLM-L6-v2")
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# -------------------------------------------
-# REQUEST MODEL
-# -------------------------------------------
-class MatchRequest(BaseModel):
-    title1: str = ""
-    description1: str = ""
-    title2: str = ""
-    description2: str = ""
-    imageUrls1: list = []
-    imageUrls2: list = []
+# YOLO small model (lightweight)
+yolo_model = YOLO("yolov8n.pt")
 
-# -------------------------------------------
-# SAFE TEXT SIMILARITY
-# Converts cosine [-1,1] → [0,1]
-# -------------------------------------------
-def text_similarity(text1, text2):
-    if not text1.strip() or not text2.strip():
-        return 0.0
+# DINOv2 base model
+processor = AutoImageProcessor.from_pretrained("facebook/dinov2-base")
+dinov2_model = AutoModel.from_pretrained("facebook/dinov2-base").to(device)
+dinov2_model.eval()
 
-    embeddings = text_model.encode(
-        [text1, text2],
-        normalize_embeddings=True
-    )
 
-    cosine = float(np.dot(embeddings[0], embeddings[1]))
+# =========================
+# OBJECT DETECTION + CROP
+# =========================
 
-    # Convert -1→1 range into 0→1 range
-    normalized_score = (cosine + 1) / 2
+def detect_and_crop(image_path):
+    image = Image.open(image_path).convert("RGB")
 
-    return max(0.0, min(1.0, normalized_score))
+    results = yolo_model(image_path)
 
-# -------------------------------------------
-# SAFE IMAGE HASH
-# -------------------------------------------
-def get_image_hash(url):
-    try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers, timeout=8)
+    if len(results[0].boxes) == 0:
+        # No object detected → return full image
+        return image
 
-        if response.status_code != 200:
-            return None
+    # Take highest confidence detection
+    boxes = results[0].boxes
+    confidences = boxes.conf.cpu().numpy()
+    best_index = np.argmax(confidences)
 
-        img = Image.open(BytesIO(response.content)).convert("RGB")
+    box = boxes.xyxy[best_index].cpu().numpy().astype(int)
+    x1, y1, x2, y2 = box
 
-        return imagehash.phash(img)
+    cropped = image.crop((x1, y1, x2, y2))
+    return cropped
 
-    except Exception:
-        return None
 
-# -------------------------------------------
-# IMPROVED IMAGE SIMILARITY
-# Less strict than before
-# -------------------------------------------
-def get_best_image_similarity(images1, images2):
-    best_score = 0.0
+# =========================
+# EXTRACT DINO EMBEDDING
+# =========================
 
-    for url1 in images1:
-        for url2 in images2:
+def extract_embedding(image: Image.Image):
+    inputs = processor(images=image, return_tensors="pt").to(device)
 
-            hash1 = get_image_hash(url1)
-            hash2 = get_image_hash(url2)
+    with torch.no_grad():
+        outputs = dinov2_model(**inputs)
 
-            if hash1 is None or hash2 is None:
-                continue
+    # Mean pooling
+    embedding = outputs.last_hidden_state.mean(dim=1)
 
-            distance = hash1 - hash2
+    # Normalize vector
+    embedding = F.normalize(embedding, p=2, dim=1)
 
-            # More tolerant scaling
-            similarity = max(0.0, 1 - (distance / 32))
+    return embedding
 
-            best_score = max(best_score, similarity)
 
-    return best_score
+# =========================
+# IMAGE SIMILARITY FUNCTION
+# =========================
 
-# -------------------------------------------
-# MAIN ENDPOINT
-# -------------------------------------------
-@app.post("/compare-match/")
-async def compare_match(data: MatchRequest):
+def compute_image_similarity(image_path_1, image_path_2):
+    # Detect + crop
+    image1 = detect_and_crop(image_path_1)
+    image2 = detect_and_crop(image_path_2)
 
-    try:
+    # Extract embeddings
+    emb1 = extract_embedding(image1)
+    emb2 = extract_embedding(image2)
 
-        # ---------------------------
-        # 1️⃣ TITLE (MAX 15)
-        # ---------------------------
-        title_sim = text_similarity(
-            data.title1 or "",
-            data.title2 or ""
-        )
+    # Cosine similarity
+    similarity = F.cosine_similarity(emb1, emb2).item()
 
-        title_points = float(np.clip(title_sim * 15, 0, 15))
+    # Normalize from [-1,1] → [0,1]
+    similarity = (similarity + 1) / 2
 
-        # ---------------------------
-        # 2️⃣ DESCRIPTION (MAX 15)
-        # ---------------------------
-        desc_sim = text_similarity(
-            data.description1 or "",
-            data.description2 or ""
-        )
-
-        description_points = float(np.clip(desc_sim * 15, 0, 15))
-
-        # ---------------------------
-        # 3️⃣ IMAGES (MAX 25)
-        # ---------------------------
-        image_sim = 0.0
-        image_points = 0.0
-
-        if data.imageUrls1 and data.imageUrls2:
-            image_sim = get_best_image_similarity(
-                data.imageUrls1,
-                data.imageUrls2
-            )
-
-            image_points = float(np.clip(image_sim * 25, 0, 25))
-
-        # ---------------------------
-        # TOTAL AI SCORE (MAX 55)
-        # ---------------------------
-        total_points = (
-            title_points +
-            description_points +
-            image_points
-        )
-
-        return {
-            "titleSimilarity": round(title_sim, 4),
-            "descriptionSimilarity": round(desc_sim, 4),
-            "imageSimilarity": round(image_sim, 4),
-
-            "titlePoints": round(title_points, 2),
-            "descriptionPoints": round(description_points, 2),
-            "imagePoints": round(image_points, 2),
-
-            "totalAIpoints": round(total_points, 2)
-        }
-
-    except Exception as e:
-        return {"error": str(e)}
+    return round(similarity, 4)
