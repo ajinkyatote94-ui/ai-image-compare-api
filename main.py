@@ -1,7 +1,7 @@
 from fastapi import FastAPI, UploadFile, File
 import shutil
 import uuid
-from ai_service import compute_image_similarity
+from app import compute_image_similarity
 
 app = FastAPI()
 
