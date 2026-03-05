@@ -3,6 +3,5 @@ uvicorn
 torch
 torchvision
 pillow
-sentence-transformers
 scikit-learn
-python-multipart
+numpy

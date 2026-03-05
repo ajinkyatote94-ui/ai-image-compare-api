@@ -4,6 +4,8 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 from PIL import Image
 import math
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 device = "cpu"
 
@@ -73,19 +75,19 @@ from sentence_transformers import SentenceTransformer
 
 text_model = SentenceTransformer("all-MiniLM-L6-v2")
 
-def text_similarity(t1,t2):
+def text_similarity(t1, t2):
 
     if not t1 or not t2:
         return 0
 
-    emb1 = text_model.encode(t1,convert_to_tensor=True)
-    emb2 = text_model.encode(t2,convert_to_tensor=True)
+    texts = [t1, t2]
 
-    sim = F.cosine_similarity(emb1,emb2,dim=0).item()
-    sim = (sim+1)/2
+    vectorizer = TfidfVectorizer()
+    tfidf = vectorizer.fit_transform(texts)
+
+    sim = cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0]
 
     return sim
-
 
 # =========================
 # CATEGORY AI
