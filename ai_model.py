@@ -2,26 +2,17 @@ import torch
 import torch.nn.functional as F
 import torchvision.models as models
 import torchvision.transforms as transforms
-
 from PIL import Image
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-
-# =========================
-# DEVICE
-# =========================
+import math
 
 device = "cpu"
-torch.set_grad_enabled(False)
 
 # =========================
 # IMAGE MODEL
 # =========================
 
 image_model = models.mobilenet_v3_small(weights="DEFAULT")
-
 image_model.classifier = torch.nn.Identity()
-
 image_model.eval()
 image_model.to(device)
 
@@ -35,33 +26,12 @@ transform = transforms.Compose([
 ])
 
 # =========================
-# CENTER CROP
-# =========================
-
-def center_crop(image):
-
-    w,h = image.size
-    size = int(min(w,h)*0.8)
-
-    left = (w-size)//2
-    top = (h-size)//2
-
-    right = left+size
-    bottom = top+size
-
-    return image.crop((left,top,right,bottom))
-
-
-# =========================
 # IMAGE EMBEDDING
 # =========================
 
-def get_image_embedding(image_path):
+def get_embedding(path):
 
-    image = Image.open(image_path).convert("RGB")
-
-    image = center_crop(image)
-
+    image = Image.open(path).convert("RGB")
     image = transform(image).unsqueeze(0).to(device)
 
     with torch.no_grad():
@@ -73,72 +43,199 @@ def get_image_embedding(image_path):
 
 
 # =========================
-# IMAGE SIMILARITY
+# IMAGE SIMILARITY (MULTI IMAGE)
 # =========================
 
-def compute_image_similarity(img1,img2):
+def compute_image_similarity(imagesA,imagesB):
 
-    emb1 = get_image_embedding(img1)
-    emb2 = get_image_embedding(img2)
+    best = 0
 
-    sim = F.cosine_similarity(emb1,emb2).item()
+    embeddingsA = [get_embedding(p) for p in imagesA]
+    embeddingsB = [get_embedding(p) for p in imagesB]
 
+    for a in embeddingsA:
+        for b in embeddingsB:
+
+            sim = F.cosine_similarity(a,b).item()
+            sim = (sim+1)/2
+
+            if sim > best:
+                best = sim
+
+    return best
+
+
+# =========================
+# TEXT SIMILARITY
+# =========================
+
+from sentence_transformers import SentenceTransformer
+
+text_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+def text_similarity(t1,t2):
+
+    if not t1 or not t2:
+        return 0
+
+    emb1 = text_model.encode(t1,convert_to_tensor=True)
+    emb2 = text_model.encode(t2,convert_to_tensor=True)
+
+    sim = F.cosine_similarity(emb1,emb2,dim=0).item()
     sim = (sim+1)/2
 
     return sim
 
 
 # =========================
-# TEXT SIMILARITY (LIGHTWEIGHT)
+# CATEGORY AI
 # =========================
 
-vectorizer = TfidfVectorizer()
+def detect_category(text):
 
-def compute_text_similarity(text1,text2):
+    text = text.lower()
 
-    if not text1 or not text2:
+    if "phone" in text or "laptop" in text:
+        return "electronics"
+
+    if "wallet" in text or "purse" in text:
+        return "wallet"
+
+    if "key" in text:
+        return "keys"
+
+    if "shirt" in text or "jacket" in text:
+        return "clothing"
+
+    if "watch" in text or "glasses" in text:
+        return "accessories"
+
+    if "bag" in text or "backpack" in text:
+        return "bags"
+
+    if "ring" in text or "necklace" in text:
+        return "jewelry"
+
+    if "passport" in text or "license" in text:
+        return "documents"
+
+    if "football" in text or "cricket" in text:
+        return "sports"
+
+    return "other"
+
+
+def category_score(cat1,cat2,title1,title2,desc1,desc2):
+
+    if cat1 != "other" and cat2 != "other":
+
+        if cat1 == cat2:
+            return 50
+
         return 0
 
-    vectors = vectorizer.fit_transform([text1,text2])
+    text1 = title1 + " " + desc1
+    text2 = title2 + " " + desc2
 
-    sim = cosine_similarity(vectors[0:1],vectors[1:2])[0][0]
+    c1 = detect_category(text1)
+    c2 = detect_category(text2)
 
-    return float(sim)
+    if c1 == c2:
+        return 50
+
+    return 0
 
 
 # =========================
-# FULL MATCH CALCULATION
+# LOCATION
+# =========================
+
+def distance(lat1,lon1,lat2,lon2):
+
+    R = 6371
+
+    dlat = math.radians(lat2-lat1)
+    dlon = math.radians(lon2-lon1)
+
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
+    c = 2*math.atan2(math.sqrt(a),math.sqrt(1-a))
+
+    return R*c
+
+
+def location_score(lat1,lon1,lat2,lon2):
+
+    d = distance(lat1,lon1,lat2,lon2)
+
+    if d < 1:
+        return 50
+    if d < 5:
+        return 40
+    if d < 10:
+        return 30
+    if d < 20:
+        return 20
+
+    return 10
+
+
+# =========================
+# FINAL MATCH
 # =========================
 
 def compute_match(
-    img1,
-    img2,
+    imagesA,
+    imagesB,
     title1,
     title2,
     desc1,
-    desc2
+    desc2,
+    category1,
+    category2,
+    lat1,
+    lon1,
+    lat2,
+    lon2
 ):
 
-    image_sim = compute_image_similarity(img1,img2)
+    img_sim = compute_image_similarity(imagesA,imagesB)
 
-    title_sim = compute_text_similarity(title1,title2)
+    title_sim = text_similarity(title1,title2)
+    desc_sim = text_similarity(desc1,desc2)
 
-    desc_sim = compute_text_similarity(desc1,desc2)
-
-    image_points = round(image_sim*50,2)
+    image_points = round(img_sim*50,2)
     title_points = round(title_sim*50,2)
     desc_points = round(desc_sim*50,2)
 
-    total_ai = round(image_points+title_points+desc_points,2)
+    cat_points = category_score(
+        category1,
+        category2,
+        title1,
+        title2,
+        desc1,
+        desc2
+    )
+
+    loc_points = location_score(
+        lat1,
+        lon1,
+        lat2,
+        lon2
+    )
+
+    total = round(
+        image_points +
+        title_points +
+        desc_points +
+        cat_points +
+        loc_points
+    ,2)
 
     return {
-        "imageSimilarity":round(image_sim,4),
-        "titleSimilarity":round(title_sim,4),
-        "descriptionSimilarity":round(desc_sim,4),
-
         "imagePoints":image_points,
         "titlePoints":title_points,
         "descriptionPoints":desc_points,
-
-        "totalAIpoints":total_ai
+        "categoryPoints":cat_points,
+        "locationPoints":loc_points,
+        "totalAIpoints":total
     }

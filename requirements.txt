@@ -1,8 +1,8 @@
 fastapi
 uvicorn
-python-multipart
-torch --index-url https://download.pytorch.org/whl/cpu
-torchvision --index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
 pillow
 sentence-transformers
-numpy
+scikit-learn
+python-multipart
