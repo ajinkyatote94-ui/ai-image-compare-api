@@ -3,32 +3,27 @@ import torch.nn.functional as F
 import torchvision.models as models
 import torchvision.transforms as transforms
 
-from sentence_transformers import SentenceTransformer
 from PIL import Image
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 # =========================
 # DEVICE
 # =========================
 
 device = "cpu"
+torch.set_grad_enabled(False)
 
 # =========================
-# IMAGE MODEL (LIGHTWEIGHT)
+# IMAGE MODEL
 # =========================
 
-image_model = models.mobilenet_v3_small(pretrained=True)
+image_model = models.mobilenet_v3_small(weights="DEFAULT")
 
-# remove classifier to get embeddings
 image_model.classifier = torch.nn.Identity()
 
 image_model.eval()
 image_model.to(device)
-
-# =========================
-# TEXT MODEL
-# =========================
-
-text_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 # =========================
 # IMAGE TRANSFORM
@@ -40,7 +35,7 @@ transform = transforms.Compose([
 ])
 
 # =========================
-# CENTER CROP (simple object focus)
+# CENTER CROP
 # =========================
 
 def center_crop(image):
@@ -94,22 +89,21 @@ def compute_image_similarity(img1,img2):
 
 
 # =========================
-# TEXT SIMILARITY
+# TEXT SIMILARITY (LIGHTWEIGHT)
 # =========================
+
+vectorizer = TfidfVectorizer()
 
 def compute_text_similarity(text1,text2):
 
     if not text1 or not text2:
         return 0
 
-    emb1 = text_model.encode(text1,convert_to_tensor=True)
-    emb2 = text_model.encode(text2,convert_to_tensor=True)
+    vectors = vectorizer.fit_transform([text1,text2])
 
-    sim = F.cosine_similarity(emb1,emb2,dim=0).item()
+    sim = cosine_similarity(vectors[0:1],vectors[1:2])[0][0]
 
-    sim = (sim+1)/2
-
-    return sim
+    return float(sim)
 
 
 # =========================
@@ -131,11 +125,9 @@ def compute_match(
 
     desc_sim = compute_text_similarity(desc1,desc2)
 
-    image_points = round(image_sim*20,2)
-
-    title_points = round(title_sim*20,2)
-
-    desc_points = round(desc_sim*20,2)
+    image_points = round(image_sim*50,2)
+    title_points = round(title_sim*50,2)
+    desc_points = round(desc_sim*50,2)
 
     total_ai = round(image_points+title_points+desc_points,2)
 

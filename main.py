@@ -10,32 +10,31 @@ app = FastAPI()
 
 @app.get("/")
 def root():
-    return {"status":"AI running"}
+    return {"status": "AI running"}
 
 
 @app.post("/compare-match/")
 async def compare_match(
     image1: UploadFile = File(...),
     image2: UploadFile = File(...),
-
     title1: str = Form(""),
     title2: str = Form(""),
-
     description1: str = Form(""),
     description2: str = Form("")
 ):
 
-    file1 = f"temp_{uuid.uuid4()}.jpg"
-    file2 = f"temp_{uuid.uuid4()}.jpg"
+    file1 = f"/tmp/temp_{uuid.uuid4()}.jpg"
+    file2 = f"/tmp/temp_{uuid.uuid4()}.jpg"
 
     try:
+        # Save uploaded images
+        with open(file1, "wb") as f:
+            shutil.copyfileobj(image1.file, f)
 
-        with open(file1,"wb") as f:
-            shutil.copyfileobj(image1.file,f)
+        with open(file2, "wb") as f:
+            shutil.copyfileobj(image2.file, f)
 
-        with open(file2,"wb") as f:
-            shutil.copyfileobj(image2.file,f)
-
+        # Run AI match
         result = compute_match(
             file1,
             file2,
@@ -48,7 +47,7 @@ async def compare_match(
         return result
 
     finally:
-
+        # Clean temporary files
         if os.path.exists(file1):
             os.remove(file1)
 
