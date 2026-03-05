@@ -71,9 +71,7 @@ def compute_image_similarity(imagesA,imagesB):
 # TEXT SIMILARITY
 # =========================
 
-from sentence_transformers import SentenceTransformer
 
-text_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 def text_similarity(t1, t2):
 
