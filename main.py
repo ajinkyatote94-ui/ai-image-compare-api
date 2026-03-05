@@ -1,46 +1,56 @@
-# main.py
-
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 import shutil
 import uuid
 import os
-from ai_model import compute_image_similarity
+
+from ai_model import compute_match
 
 app = FastAPI()
 
 
 @app.get("/")
 def root():
-    return {"status": "AI server running"}
+    return {"status":"AI running"}
 
 
-@app.post("/compare-images/")
-async def compare_images(
+@app.post("/compare-match/")
+async def compare_match(
     image1: UploadFile = File(...),
-    image2: UploadFile = File(...)
+    image2: UploadFile = File(...),
+
+    title1: str = Form(""),
+    title2: str = Form(""),
+
+    description1: str = Form(""),
+    description2: str = Form("")
 ):
-    file1_path = f"temp_{uuid.uuid4()}.jpg"
-    file2_path = f"temp_{uuid.uuid4()}.jpg"
+
+    file1 = f"temp_{uuid.uuid4()}.jpg"
+    file2 = f"temp_{uuid.uuid4()}.jpg"
 
     try:
-        # Save temp images
-        with open(file1_path, "wb") as buffer:
-            shutil.copyfileobj(image1.file, buffer)
 
-        with open(file2_path, "wb") as buffer:
-            shutil.copyfileobj(image2.file, buffer)
+        with open(file1,"wb") as f:
+            shutil.copyfileobj(image1.file,f)
 
-        # Compute similarity
-        similarity = compute_image_similarity(file1_path, file2_path)
+        with open(file2,"wb") as f:
+            shutil.copyfileobj(image2.file,f)
 
-        return {
-            "imageSimilarity": similarity,
-            "imagePoints": round(similarity * 25, 2)
-        }
+        result = compute_match(
+            file1,
+            file2,
+            title1,
+            title2,
+            description1,
+            description2
+        )
+
+        return result
 
     finally:
-        # Clean up temp files
-        if os.path.exists(file1_path):
-            os.remove(file1_path)
-        if os.path.exists(file2_path):
-            os.remove(file2_path)
+
+        if os.path.exists(file1):
+            os.remove(file1)
+
+        if os.path.exists(file2):
+            os.remove(file2)

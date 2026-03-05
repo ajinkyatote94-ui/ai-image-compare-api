@@ -1,9 +1,8 @@
 fastapi
-uvicorn[standard]
-torch
-torchvision
-transformers
-ultralytics
+uvicorn
+python-multipart
+torch --index-url https://download.pytorch.org/whl/cpu
+torchvision --index-url https://download.pytorch.org/whl/cpu
 pillow
+sentence-transformers
 numpy
-requests

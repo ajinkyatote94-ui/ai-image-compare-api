@@ -1,90 +1,152 @@
-# ai_model.py
-
 import torch
 import torch.nn.functional as F
-from transformers import AutoImageProcessor, AutoModel
-from ultralytics import YOLO
+import torchvision.models as models
+import torchvision.transforms as transforms
+
+from sentence_transformers import SentenceTransformer
 from PIL import Image
-import numpy as np
 
 # =========================
 # DEVICE
 # =========================
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cpu"
 
 # =========================
-# LOAD MODELS (ON STARTUP)
+# IMAGE MODEL (LIGHTWEIGHT)
 # =========================
 
-# Lightweight YOLO model
-yolo_model = YOLO("yolov8n.pt")
+image_model = models.mobilenet_v3_small(pretrained=True)
 
-# DINOv2 base
-processor = AutoImageProcessor.from_pretrained("facebook/dinov2-base")
-dinov2_model = AutoModel.from_pretrained("facebook/dinov2-base").to(device)
-dinov2_model.eval()
+# remove classifier to get embeddings
+image_model.classifier = torch.nn.Identity()
+
+image_model.eval()
+image_model.to(device)
 
 # =========================
-# OBJECT DETECTION + CROP
+# TEXT MODEL
 # =========================
 
-def detect_and_crop(image_path):
+text_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+# =========================
+# IMAGE TRANSFORM
+# =========================
+
+transform = transforms.Compose([
+    transforms.Resize((224,224)),
+    transforms.ToTensor(),
+])
+
+# =========================
+# CENTER CROP (simple object focus)
+# =========================
+
+def center_crop(image):
+
+    w,h = image.size
+    size = int(min(w,h)*0.8)
+
+    left = (w-size)//2
+    top = (h-size)//2
+
+    right = left+size
+    bottom = top+size
+
+    return image.crop((left,top,right,bottom))
+
+
+# =========================
+# IMAGE EMBEDDING
+# =========================
+
+def get_image_embedding(image_path):
+
     image = Image.open(image_path).convert("RGB")
 
-    results = yolo_model(image_path)
+    image = center_crop(image)
 
-    if len(results[0].boxes) == 0:
-        return image
-
-    boxes = results[0].boxes
-    confidences = boxes.conf.cpu().numpy()
-    best_index = np.argmax(confidences)
-
-    box = boxes.xyxy[best_index].cpu().numpy().astype(int)
-    x1, y1, x2, y2 = box
-
-    cropped = image.crop((x1, y1, x2, y2))
-    return cropped
-
-
-# =========================
-# EXTRACT DINO EMBEDDING
-# =========================
-
-def extract_embedding(image: Image.Image):
-    inputs = processor(images=image, return_tensors="pt").to(device)
+    image = transform(image).unsqueeze(0).to(device)
 
     with torch.no_grad():
-        outputs = dinov2_model(**inputs)
+        emb = image_model(image)
 
-    # Mean pooling
-    embedding = outputs.last_hidden_state.mean(dim=1)
+    emb = F.normalize(emb,dim=1)
 
-    # Normalize
-    embedding = F.normalize(embedding, p=2, dim=1)
-
-    return embedding
+    return emb
 
 
 # =========================
 # IMAGE SIMILARITY
 # =========================
 
-def compute_image_similarity(image_path_1, image_path_2):
+def compute_image_similarity(img1,img2):
 
-    # Detect + crop
-    image1 = detect_and_crop(image_path_1)
-    image2 = detect_and_crop(image_path_2)
+    emb1 = get_image_embedding(img1)
+    emb2 = get_image_embedding(img2)
 
-    # Extract embeddings
-    emb1 = extract_embedding(image1)
-    emb2 = extract_embedding(image2)
+    sim = F.cosine_similarity(emb1,emb2).item()
 
-    # Cosine similarity
-    similarity = F.cosine_similarity(emb1, emb2).item()
+    sim = (sim+1)/2
 
-    # Normalize [-1,1] → [0,1]
-    similarity = (similarity + 1) / 2
+    return sim
 
-    return round(similarity, 4)
+
+# =========================
+# TEXT SIMILARITY
+# =========================
+
+def compute_text_similarity(text1,text2):
+
+    if not text1 or not text2:
+        return 0
+
+    emb1 = text_model.encode(text1,convert_to_tensor=True)
+    emb2 = text_model.encode(text2,convert_to_tensor=True)
+
+    sim = F.cosine_similarity(emb1,emb2,dim=0).item()
+
+    sim = (sim+1)/2
+
+    return sim
+
+
+# =========================
+# FULL MATCH CALCULATION
+# =========================
+
+def compute_match(
+    img1,
+    img2,
+    title1,
+    title2,
+    desc1,
+    desc2
+):
+
+    image_sim = compute_image_similarity(img1,img2)
+
+    title_sim = compute_text_similarity(title1,title2)
+
+    desc_sim = compute_text_similarity(desc1,desc2)
+
+    image_points = round(image_sim*20,2)
+
+    title_points = round(title_sim*20,2)
+
+    desc_points = round(desc_sim*20,2)
+
+    total_ai = round(image_points+title_points+desc_points,2)
+
+    return {
+        "imageSimilarity":round(image_sim,4),
+        "titleSimilarity":round(title_sim,4),
+        "descriptionSimilarity":round(desc_sim,4),
+
+        "imagePoints":image_points,
+        "titlePoints":title_points,
+        "descriptionPoints":desc_points,
+
+        "totalAIpoints":total_ai
+    }
