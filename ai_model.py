@@ -40,6 +40,7 @@ def get_embedding(path):
 
     try:
         image = Image.open(path).convert("RGB")
+        image = image.copy()
     except:
         return None
 
