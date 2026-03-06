@@ -23,22 +23,18 @@ def root():
 @app.post("/compare-match/")
 async def compare_match(
 
-    # multiple images
     images1: List[UploadFile] = File(...),
     images2: List[UploadFile] = File(...),
 
-    # text
     title1: str = Form(""),
     title2: str = Form(""),
 
     description1: str = Form(""),
     description2: str = Form(""),
 
-    # category
     category1: str = Form(""),
     category2: str = Form(""),
 
-    # location
     lat1: float = Form(...),
     lon1: float = Form(...),
 
@@ -51,6 +47,10 @@ async def compare_match(
 
     try:
 
+        # limit images
+        if len(images1) > 5 or len(images2) > 5:
+            return {"error": "Maximum 5 images allowed"}
+
         # save item1 images
         for img in images1:
             path = f"/tmp/{uuid.uuid4()}.jpg"
@@ -60,14 +60,23 @@ async def compare_match(
 
             paths1.append(path)
 
+            await img.close()
+
         # save item2 images
         for img in images2:
             path = f"/tmp/{uuid.uuid4()}.jpg"
 
             with open(path, "wb") as f:
-                shutil.copyfileobj(img.file, f)
+             content = await img.read()
+
+             if len(content) > 5 * 1024 * 1024:  # 5MB limit
+                  return {"error": "Image too large"}
+
+            f.write(content)
 
             paths2.append(path)
+
+            await img.close()
 
         # run AI
         result = compute_match(
