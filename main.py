@@ -2,11 +2,19 @@ from fastapi import FastAPI, UploadFile, File, Form
 from typing import List
 import uuid
 import os
+from fastapi.middleware.cors import CORSMiddleware
 
 from ai_model import compute_match
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 os.makedirs("/tmp", exist_ok=True)
 
 
