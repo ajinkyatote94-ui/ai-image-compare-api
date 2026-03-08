@@ -3,11 +3,15 @@ from typing import List
 import uuid
 import os
 from fastapi.middleware.cors import CORSMiddleware
+from PIL import Image
 
 from ai_model import compute_match
 
 app = FastAPI()
 
+# ================================
+# CORS
+# ================================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,19 +19,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-os.makedirs("/tmp", exist_ok=True)
+
+# temp folder
+TMP_DIR = "/tmp"
+os.makedirs(TMP_DIR, exist_ok=True)
 
 
+# ================================
+# ROOT
+# ================================
 @app.get("/")
 def root():
     return {"status": "AI running"}
 
 
+# ================================
+# MATCH API
+# ================================
 @app.post("/compare-match/")
 async def compare_match(
 
-    images1: UploadFile = File(...),
-    images2: UploadFile = File(...),
+    images1: List[UploadFile] = File(...),
+    images2: List[UploadFile] = File(...),
 
     title1: str = Form(""),
     title2: str = Form(""),
@@ -43,6 +56,7 @@ async def compare_match(
 
     lat2: float = Form(...),
     lon2: float = Form(...)
+
 ):
 
     paths1 = []
@@ -50,49 +64,64 @@ async def compare_match(
 
     try:
 
-        # -------- save image1 --------
-        if not images1.content_type.startswith("image/"):
-            return {"error": "Only image files allowed"}
+        # limit images
+        if len(images1) > 5 or len(images2) > 5:
+            return {"error": "Maximum 5 images allowed"}
 
-        content1 = await images1.read()
+        # ================================
+        # SAVE IMAGES 1
+        # ================================
+        for img in images1:
 
-        if len(content1) > 5 * 1024 * 1024:
-            return {"error": "Image too large"}
+            content = await img.read()
 
-        path1 = f"/tmp/{uuid.uuid4()}.jpg"
+            if len(content) > 5 * 1024 * 1024:
+                return {"error": "Image too large"}
 
-        with open(path1, "wb") as f:
-            f.write(content1)
+            path = f"{TMP_DIR}/{uuid.uuid4()}.jpg"
 
-        paths1.append(path1)
+            with open(path, "wb") as f:
+                f.write(content)
 
-        await images1.close()
+            # validate image
+            try:
+                with Image.open(path) as im:
+                    im.verify()
+            except Exception:
+                return {"error": "Invalid image"}
 
-        # -------- save image2 --------
-        if not images2.content_type.startswith("image/"):
-            return {"error": "Only image files allowed"}
+            paths1.append(path)
 
-        content2 = await images2.read()
+            await img.close()
 
-        if len(content2) > 5 * 1024 * 1024:
-            return {"error": "Image too large"}
+        # ================================
+        # SAVE IMAGES 2
+        # ================================
+        for img in images2:
 
-        path2 = f"/tmp/{uuid.uuid4()}.jpg"
+            content = await img.read()
 
-        with open(path2, "wb") as f:
-            f.write(content2)
+            if len(content) > 5 * 1024 * 1024:
+                return {"error": "Image too large"}
 
-        paths2.append(path2)
+            path = f"{TMP_DIR}/{uuid.uuid4()}.jpg"
 
-        await images2.close()
-        print("TITLE1:", title1)
-        print("TITLE2:", title2)
-        print("DESC1:", description1)
-        print("DESC2:", description2)
-        print("CATEGORY1:", category1)
-        print("CATEGORY2:", category2)
-        print("LAT1:", lat1, "LON1:", lon1)
-        print("LAT2:", lat2, "LON2:", lon2)
+            with open(path, "wb") as f:
+                f.write(content)
+
+            try:
+                with Image.open(path) as im:
+                    im.verify()
+            except Exception:
+                return {"error": "Invalid image"}
+
+            paths2.append(path)
+
+            await img.close()
+
+        # ================================
+        # RUN AI
+        # ================================
         result = compute_match(
             paths1,
             paths2,
@@ -111,10 +140,14 @@ async def compare_match(
         return result
 
     except Exception as e:
+        print("AI ERROR:", e)
         return {"error": str(e)}
 
     finally:
 
+        # ================================
+        # CLEAN TEMP FILES
+        # ================================
         for p in paths1:
             if os.path.exists(p):
                 os.remove(p)

@@ -15,7 +15,10 @@ device = "cpu"
 
 weights = models.MobileNet_V3_Small_Weights.DEFAULT
 image_model = models.mobilenet_v3_small(weights=weights)
+
+# remove classifier → feature extractor
 image_model.classifier = torch.nn.Identity()
+
 image_model.eval()
 image_model.to(device)
 
@@ -30,9 +33,7 @@ transform = transforms.Compose([
         mean=[0.485,0.456,0.406],
         std=[0.229,0.224,0.225]
     )
-])
-
-# =========================
+])# =========================
 # IMAGE EMBEDDING
 # =========================
 
@@ -40,7 +41,10 @@ def get_embedding(path):
 
     try:
         image = Image.open(path).convert("RGB")
-        image = image.copy()
+
+        # prevent huge images slowing AI
+        image.thumbnail((512,512))
+
     except:
         return None
 
@@ -55,7 +59,7 @@ def get_embedding(path):
 
 
 # =========================
-# IMAGE SIMILARITY (MULTI IMAGE)
+# IMAGE SIMILARITY
 # =========================
 
 def compute_image_similarity(imagesA, imagesB):
@@ -65,17 +69,11 @@ def compute_image_similarity(imagesA, imagesB):
 
     best = 0
 
-    embeddingsA = []
-    for p in imagesA:
-        emb = get_embedding(p)
-        if emb is not None:
-            embeddingsA.append(emb)
+    embeddingsA = [get_embedding(p) for p in imagesA]
+    embeddingsA = [e for e in embeddingsA if e is not None]
 
-    embeddingsB = []
-    for p in imagesB:
-        emb = get_embedding(p)
-        if emb is not None:
-            embeddingsB.append(emb)
+    embeddingsB = [get_embedding(p) for p in imagesB]
+    embeddingsB = [e for e in embeddingsB if e is not None]
 
     if not embeddingsA or not embeddingsB:
         return 0
@@ -84,17 +82,15 @@ def compute_image_similarity(imagesA, imagesB):
         for b in embeddingsB:
 
             sim = F.cosine_similarity(a, b).item()
+
             sim = (sim + 1) / 2
 
             if sim > best:
                 best = sim
 
-    return best
-
-# =========================
+    return best# =========================
 # TEXT SIMILARITY
 # =========================
-
 
 def text_similarity(t1, t2):
 
@@ -105,8 +101,8 @@ def text_similarity(t1, t2):
         return 0
 
     vectorizer = TfidfVectorizer(
-        analyzer="char",
-        ngram_range=(2,4)
+        analyzer="word",
+        ngram_range=(1,2)
     )
 
     tfidf = vectorizer.fit_transform([t1, t2])
@@ -115,8 +111,9 @@ def text_similarity(t1, t2):
 
     return sim
 
+
 # =========================
-# CATEGORY AI
+# CATEGORY DETECTION
 # =========================
 
 def detect_category(text):
@@ -158,11 +155,9 @@ def category_score(cat1, cat2, title1, title2, desc1, desc2):
     cat1 = (cat1 or "").lower()
     cat2 = (cat2 or "").lower()
 
-    # If both categories are proper
     if cat1 != "other" and cat2 != "other":
         return 50 if cat1 == cat2 else 0
 
-    # If any category is "other" → detect using text
     text1 = (title1 + " " + desc1).lower()
     text2 = (title2 + " " + desc2).lower()
 
@@ -173,6 +168,8 @@ def category_score(cat1, cat2, title1, title2, desc1, desc2):
         return 50
 
     return 0
+
+
 # =========================
 # LOCATION
 # =========================
@@ -203,10 +200,7 @@ def location_score(lat1,lon1,lat2,lon2):
     if d < 20:
         return 20
 
-    return 10
-
-
-# =========================
+    return 10# =========================
 # FINAL MATCH
 # =========================
 
@@ -224,10 +218,12 @@ def compute_match(
     lat2,
     lon2
 ):
+
     lat1 = float(lat1)
     lon1 = float(lon1)
     lat2 = float(lat2)
     lon2 = float(lon2)
+
     img_sim = compute_image_similarity(imagesA,imagesB)
 
     title_sim = text_similarity(title1,title2)
@@ -253,15 +249,16 @@ def compute_match(
         lon2
     )
 
-   
-
-    total = image_points + title_points + desc_points + cat_points + loc_points
+    total = min(
+        image_points + title_points + desc_points + cat_points + loc_points,
+        250
+    )
 
     return {
-    "image": image_points,
-    "title": title_points,
-    "description": desc_points,
-    "category": cat_points,
-    "location": loc_points,
-    "total": total
+        "image": image_points,
+        "title": title_points,
+        "description": desc_points,
+        "category": cat_points,
+        "location": loc_points,
+        "total": total
     }
