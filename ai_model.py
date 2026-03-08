@@ -1,11 +1,24 @@
+# =========================
+# IMPORTS
+# =========================
+
 import torch
 import torch.nn.functional as F
 import torchvision.models as models
 import torchvision.transforms as transforms
 from PIL import Image
+
 import math
+import re
+
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+
+import nltk
+from nltk.corpus import wordnet
+
+# download once
+nltk.download("wordnet")
 
 device = "cpu"
 
@@ -16,11 +29,11 @@ device = "cpu"
 weights = models.MobileNet_V3_Small_Weights.DEFAULT
 image_model = models.mobilenet_v3_small(weights=weights)
 
-# remove classifier → feature extractor
 image_model.classifier = torch.nn.Identity()
 
 image_model.eval()
 image_model.to(device)
+
 
 # =========================
 # IMAGE TRANSFORM
@@ -41,10 +54,7 @@ def get_embedding(path):
 
     try:
         image = Image.open(path).convert("RGB")
-
-        # prevent huge images slowing AI
-        image.thumbnail((512,512))
-
+        image = image.copy()
     except:
         return None
 
@@ -59,7 +69,7 @@ def get_embedding(path):
 
 
 # =========================
-# IMAGE SIMILARITY
+# IMAGE SIMILARITY (MULTI IMAGE)
 # =========================
 
 def compute_image_similarity(imagesA, imagesB):
@@ -69,11 +79,17 @@ def compute_image_similarity(imagesA, imagesB):
 
     best = 0
 
-    embeddingsA = [get_embedding(p) for p in imagesA]
-    embeddingsA = [e for e in embeddingsA if e is not None]
+    embeddingsA = []
+    for p in imagesA:
+        emb = get_embedding(p)
+        if emb is not None:
+            embeddingsA.append(emb)
 
-    embeddingsB = [get_embedding(p) for p in imagesB]
-    embeddingsB = [e for e in embeddingsB if e is not None]
+    embeddingsB = []
+    for p in imagesB:
+        emb = get_embedding(p)
+        if emb is not None:
+            embeddingsB.append(emb)
 
     if not embeddingsA or not embeddingsB:
         return 0
@@ -89,7 +105,71 @@ def compute_image_similarity(imagesA, imagesB):
                 best = sim
 
     return best# =========================
-# TEXT SIMILARITY
+# TEXT UTILITIES
+# =========================
+
+def extract_keywords(text):
+
+    text = (text or "").lower()
+
+    words = re.findall(r'\b[a-z]{3,}\b', text)
+
+    stopwords = {
+        "the","and","this","that","with","have","found",
+        "lost","someone","near","around","yesterday",
+        "today","item","thing"
+    }
+
+    words = [w for w in words if w not in stopwords]
+
+    return words
+
+
+# =========================
+# WORDNET SYNONYMS
+# =========================
+
+def get_synonyms(word):
+
+    synonyms = set()
+
+    for syn in wordnet.synsets(word):
+        for lemma in syn.lemmas():
+
+            name = lemma.name().lower().replace("_"," ")
+
+            synonyms.add(name)
+
+    return synonyms
+
+
+# =========================
+# SYNONYM SIMILARITY
+# =========================
+
+def synonym_similarity(text1, text2):
+
+    words1 = extract_keywords(text1)
+    words2 = extract_keywords(text2)
+
+    for w1 in words1:
+
+        syn1 = get_synonyms(w1)
+        syn1.add(w1)
+
+        for w2 in words2:
+
+            syn2 = get_synonyms(w2)
+            syn2.add(w2)
+
+            if syn1.intersection(syn2):
+                return 1
+
+    return 0
+
+
+# =========================
+# TF-IDF TEXT SIMILARITY
 # =========================
 
 def text_similarity(t1, t2):
@@ -101,18 +181,15 @@ def text_similarity(t1, t2):
         return 0
 
     vectorizer = TfidfVectorizer(
-        analyzer="word",
-        ngram_range=(1,2)
+        analyzer="char",
+        ngram_range=(2,4)
     )
 
     tfidf = vectorizer.fit_transform([t1, t2])
 
     sim = cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0]
 
-    return sim
-
-
-# =========================
+    return sim# =========================
 # CATEGORY DETECTION
 # =========================
 
@@ -143,9 +220,6 @@ def detect_category(text):
 
     if "passport" in text or "license" in text:
         return "documents"
-
-    if "football" in text or "cricket" in text:
-        return "sports"
 
     return "other"
 
@@ -182,6 +256,7 @@ def distance(lat1,lon1,lat2,lon2):
     dlon = math.radians(lon2-lon1)
 
     a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
+
     c = 2*math.atan2(math.sqrt(a),math.sqrt(1-a))
 
     return R*c
@@ -200,8 +275,11 @@ def location_score(lat1,lon1,lat2,lon2):
     if d < 20:
         return 20
 
-    return 10# =========================
-# FINAL MATCH
+    return 10
+
+
+# =========================
+# FINAL MATCH FUNCTION
 # =========================
 
 def compute_match(
@@ -221,18 +299,28 @@ def compute_match(
 
     lat1 = float(lat1)
     lon1 = float(lon1)
+
     lat2 = float(lat2)
     lon2 = float(lon2)
 
+    # IMAGE
     img_sim = compute_image_similarity(imagesA,imagesB)
 
-    title_sim = text_similarity(title1,title2)
-    desc_sim = text_similarity(desc1,desc2)
+    image_points = round(img_sim * 50,2)
 
-    image_points = round(img_sim*50,2)
-    title_points = round(title_sim*50,2)
-    desc_points = round(desc_sim*50,2)
+    # TITLE
+    if synonym_similarity(title1,title2):
+        title_points = 50
+    else:
+        title_points = round(text_similarity(title1,title2)*50,2)
 
+    # DESCRIPTION
+    if synonym_similarity(desc1,desc2):
+        desc_points = 40
+    else:
+        desc_points = round(text_similarity(desc1,desc2)*40,2)
+
+    # CATEGORY
     cat_points = category_score(
         category1,
         category2,
@@ -242,6 +330,7 @@ def compute_match(
         desc2
     )
 
+    # LOCATION
     loc_points = location_score(
         lat1,
         lon1,
@@ -249,10 +338,7 @@ def compute_match(
         lon2
     )
 
-    total = min(
-        image_points + title_points + desc_points + cat_points + loc_points,
-        250
-    )
+    total = image_points + title_points + desc_points + cat_points + loc_points
 
     return {
         "image": image_points,

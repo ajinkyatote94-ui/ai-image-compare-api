@@ -7,11 +7,18 @@ from PIL import Image
 
 from ai_model import compute_match
 
+
+# ================================
+# APP
+# ================================
+
 app = FastAPI()
+
 
 # ================================
 # CORS
 # ================================
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,7 +27,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# temp folder
+
+# ================================
+# TEMP FOLDER
+# ================================
+
 TMP_DIR = "/tmp"
 os.makedirs(TMP_DIR, exist_ok=True)
 
@@ -28,6 +39,7 @@ os.makedirs(TMP_DIR, exist_ok=True)
 # ================================
 # ROOT
 # ================================
+
 @app.get("/")
 def root():
     return {"status": "AI running"}
@@ -36,6 +48,7 @@ def root():
 # ================================
 # MATCH API
 # ================================
+
 @app.post("/compare-match/")
 async def compare_match(
 
@@ -56,7 +69,6 @@ async def compare_match(
 
     lat2: float = Form(...),
     lon2: float = Form(...)
-
 ):
 
     paths1 = []
@@ -64,13 +76,17 @@ async def compare_match(
 
     try:
 
-        # limit images
+        # ================================
+        # LIMIT IMAGE COUNT
+        # ================================
+
         if len(images1) > 5 or len(images2) > 5:
             return {"error": "Maximum 5 images allowed"}
 
         # ================================
-        # SAVE IMAGES 1
+        # SAVE ITEM 1 IMAGES
         # ================================
+
         for img in images1:
 
             content = await img.read()
@@ -83,7 +99,7 @@ async def compare_match(
             with open(path, "wb") as f:
                 f.write(content)
 
-            # validate image
+            # Validate image
             try:
                 with Image.open(path) as im:
                     im.verify()
@@ -95,8 +111,9 @@ async def compare_match(
             await img.close()
 
         # ================================
-        # SAVE IMAGES 2
+        # SAVE ITEM 2 IMAGES
         # ================================
+
         for img in images2:
 
             content = await img.read()
@@ -120,8 +137,9 @@ async def compare_match(
             await img.close()
 
         # ================================
-        # RUN AI
+        # RUN AI MATCH
         # ================================
+
         result = compute_match(
             paths1,
             paths2,
@@ -140,7 +158,9 @@ async def compare_match(
         return result
 
     except Exception as e:
+
         print("AI ERROR:", e)
+
         return {"error": str(e)}
 
     finally:
@@ -148,6 +168,7 @@ async def compare_match(
         # ================================
         # CLEAN TEMP FILES
         # ================================
+
         for p in paths1:
             if os.path.exists(p):
                 os.remove(p)
