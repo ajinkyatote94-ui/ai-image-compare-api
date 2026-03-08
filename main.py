@@ -7,18 +7,12 @@ from PIL import Image
 
 from ai_model import compute_match
 
-
-# ================================
-# APP
-# ================================
-
 app = FastAPI()
 
 
 # ================================
 # CORS
 # ================================
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,27 +22,15 @@ app.add_middleware(
 )
 
 
-# ================================
-# TEMP FOLDER
-# ================================
-
-TMP_DIR = "/tmp"
-os.makedirs(TMP_DIR, exist_ok=True)
-
-
-# ================================
+# temp folder
+os.makedirs("/tmp", exist_ok=True)# ================================
 # ROOT
 # ================================
-
 @app.get("/")
 def root():
-    return {"status": "AI running"}
-
-
-# ================================
+    return {"status": "AI running"}# ================================
 # MATCH API
 # ================================
-
 @app.post("/compare-match/")
 async def compare_match(
 
@@ -68,7 +50,7 @@ async def compare_match(
     lon1: float = Form(...),
 
     lat2: float = Form(...),
-    lon2: float = Form(...)
+    lon2: float = Form(...),
 ):
 
     paths1 = []
@@ -76,17 +58,11 @@ async def compare_match(
 
     try:
 
+        # limit images (keep small for Render RAM)
+        images1 = images1[:2]
+        images2 = images2[:2]        # ================================
+        # SAVE IMAGES 1
         # ================================
-        # LIMIT IMAGE COUNT
-        # ================================
-
-        if len(images1) > 5 or len(images2) > 5:
-            return {"error": "Maximum 5 images allowed"}
-
-        # ================================
-        # SAVE ITEM 1 IMAGES
-        # ================================
-
         for img in images1:
 
             content = await img.read()
@@ -94,26 +70,23 @@ async def compare_match(
             if len(content) > 5 * 1024 * 1024:
                 return {"error": "Image too large"}
 
-            path = f"{TMP_DIR}/{uuid.uuid4()}.jpg"
+            path = f"/tmp/{uuid.uuid4()}.jpg"
 
             with open(path, "wb") as f:
                 f.write(content)
 
-            # Validate image
+            # verify image
             try:
-                with Image.open(path) as im:
-                    im.verify()
-            except Exception:
+                Image.open(path).verify()
+            except:
                 return {"error": "Invalid image"}
 
             paths1.append(path)
-
             await img.close()
 
         # ================================
-        # SAVE ITEM 2 IMAGES
+        # SAVE IMAGES 2
         # ================================
-
         for img in images2:
 
             content = await img.read()
@@ -121,25 +94,22 @@ async def compare_match(
             if len(content) > 5 * 1024 * 1024:
                 return {"error": "Image too large"}
 
-            path = f"{TMP_DIR}/{uuid.uuid4()}.jpg"
+            path = f"/tmp/{uuid.uuid4()}.jpg"
 
             with open(path, "wb") as f:
                 f.write(content)
 
             try:
-                with Image.open(path) as im:
-                    im.verify()
-            except Exception:
+                Image.open(path).verify()
+            except:
                 return {"error": "Invalid image"}
 
             paths2.append(path)
-
             await img.close()
 
         # ================================
         # RUN AI MATCH
         # ================================
-
         result = compute_match(
             paths1,
             paths2,
@@ -158,9 +128,6 @@ async def compare_match(
         return result
 
     except Exception as e:
-
-        print("AI ERROR:", e)
-
         return {"error": str(e)}
 
     finally:
@@ -168,7 +135,6 @@ async def compare_match(
         # ================================
         # CLEAN TEMP FILES
         # ================================
-
         for p in paths1:
             if os.path.exists(p):
                 os.remove(p)
