@@ -58,28 +58,38 @@ def get_embedding(path):
 # IMAGE SIMILARITY (MULTI IMAGE)
 # =========================
 
-def compute_image_similarity(imagesA,imagesB):
+def compute_image_similarity(imagesA, imagesB):
 
     if not imagesA or not imagesB:
         return 0
+
     best = 0
 
-    embeddingsA = [e for e in [get_embedding(p) for p in imagesA] if e is not None]
-    embeddingsB = [e for e in [get_embedding(p) for p in imagesB] if e is not None]
+    embeddingsA = []
+    for p in imagesA:
+        emb = get_embedding(p)
+        if emb is not None:
+            embeddingsA.append(emb)
+
+    embeddingsB = []
+    for p in imagesB:
+        emb = get_embedding(p)
+        if emb is not None:
+            embeddingsB.append(emb)
 
     if not embeddingsA or not embeddingsB:
-       return 0
+        return 0
+
     for a in embeddingsA:
         for b in embeddingsB:
 
-            sim = F.cosine_similarity(a,b).item()
-            sim = (sim+1)/2
+            sim = F.cosine_similarity(a, b).item()
+            sim = (sim + 1) / 2
 
             if sim > best:
                 best = sim
 
     return best
-
 
 # =========================
 # TEXT SIMILARITY
@@ -88,10 +98,16 @@ def compute_image_similarity(imagesA,imagesB):
 
 def text_similarity(t1, t2):
 
-    if not t1 or not t2:
+    t1 = (t1 or "").strip()
+    t2 = (t2 or "").strip()
+
+    if not t1 and not t2:
         return 0
 
-    vectorizer = TfidfVectorizer()
+    vectorizer = TfidfVectorizer(
+        analyzer="char",
+        ngram_range=(2,4)
+    )
 
     tfidf = vectorizer.fit_transform([t1, t2])
 
@@ -239,10 +255,13 @@ def compute_match(
 
    
 
+    total = image_points + title_points + desc_points + cat_points + loc_points
+
     return {
-        "image": image_points,
-        "title": title_points,
-        "description": desc_points,
-        "category": cat_points,
-        "location": loc_points
+    "image": image_points,
+    "title": title_points,
+    "description": desc_points,
+    "category": cat_points,
+    "location": loc_points,
+    "total": total
     }

@@ -26,8 +26,8 @@ def root():
 @app.post("/compare-match/")
 async def compare_match(
 
-    images1: List[UploadFile] = File(...),
-    images2: List[UploadFile] = File(...),
+    images1: UploadFile = File(...),
+    images2: UploadFile = File(...),
 
     title1: str = Form(""),
     title2: str = Form(""),
@@ -50,49 +50,49 @@ async def compare_match(
 
     try:
 
-        if len(images1) > 5 or len(images2) > 5:
-            return {"error": "Maximum 5 images allowed"}
+        # -------- save image1 --------
+        if not images1.content_type.startswith("image/"):
+            return {"error": "Only image files allowed"}
 
-        # save images1
-        for img in images1:
+        content1 = await images1.read()
 
-            if not img.content_type.startswith("image/"):
-                return {"error": "Only image files allowed"}
+        if len(content1) > 5 * 1024 * 1024:
+            return {"error": "Image too large"}
 
-            content = await img.read()
+        path1 = f"/tmp/{uuid.uuid4()}.jpg"
 
-            if len(content) > 5 * 1024 * 1024:
-                return {"error": "Image too large"}
+        with open(path1, "wb") as f:
+            f.write(content1)
 
-            path = f"/tmp/{uuid.uuid4()}.jpg"
+        paths1.append(path1)
 
-            with open(path, "wb") as f:
-                f.write(content)
+        await images1.close()
 
-            paths1.append(path)
+        # -------- save image2 --------
+        if not images2.content_type.startswith("image/"):
+            return {"error": "Only image files allowed"}
 
-            await img.close()
+        content2 = await images2.read()
 
-        # save images2
-        for img in images2:
+        if len(content2) > 5 * 1024 * 1024:
+            return {"error": "Image too large"}
 
-            if not img.content_type.startswith("image/"):
-                return {"error": "Only image files allowed"}
+        path2 = f"/tmp/{uuid.uuid4()}.jpg"
 
-            content = await img.read()
+        with open(path2, "wb") as f:
+            f.write(content2)
 
-            if len(content) > 5 * 1024 * 1024:
-                return {"error": "Image too large"}
+        paths2.append(path2)
 
-            path = f"/tmp/{uuid.uuid4()}.jpg"
-
-            with open(path, "wb") as f:
-                f.write(content)
-
-            paths2.append(path)
-
-            await img.close()
-
+        await images2.close()
+        print("TITLE1:", title1)
+        print("TITLE2:", title2)
+        print("DESC1:", description1)
+        print("DESC2:", description2)
+        print("CATEGORY1:", category1)
+        print("CATEGORY2:", category2)
+        print("LAT1:", lat1, "LON1:", lon1)
+        print("LAT2:", lat2, "LON2:", lon2)
         result = compute_match(
             paths1,
             paths2,
