@@ -1,6 +1,7 @@
 from PIL import Image
 import numpy as np
 import math
+import imagehash
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -9,6 +10,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 # =========================
 # IMAGE SIMILARITY (LIGHTWEIGHT)
 # =========================
+
+
 
 def compute_image_similarity(imagesA, imagesB):
 
@@ -21,25 +24,36 @@ def compute_image_similarity(imagesA, imagesB):
         for b in imagesB:
 
             try:
-                img1 = Image.open(a).resize((64,64)).convert("RGB")
-                img2 = Image.open(b).resize((64,64)).convert("RGB")
+                with Image.open(a) as img1, Image.open(b) as img2:
 
-                arr1 = np.array(img1).flatten()
-                arr2 = np.array(img2).flatten()
+                    img1 = img1.resize((256,256)).convert("RGB")
+                    img2 = img2.resize((256,256)).convert("RGB")
 
-                sim = np.dot(arr1, arr2) / (
-                    np.linalg.norm(arr1) * np.linalg.norm(arr2)
-                )
+                    # pHash similarity
+                    hash1 = imagehash.phash(img1, hash_size=16)
+                    hash2 = imagehash.phash(img2, hash_size=16)
 
-                sim = (sim + 1) / 2
+                    phash_sim = 1 - ((hash1 - hash2) / 256)
 
-                if sim > best:
-                    best = sim
+                    # color histogram similarity
+                    hist1 = np.array(img1.histogram())
+                    hist2 = np.array(img2.histogram())
 
-            except:
+                    hist1 = hist1 / (hist1.sum() + 1e-10)
+                    hist2 = hist2 / (hist2.sum() + 1e-10)
+                    hist_sim = np.dot(hist1, hist2)
+
+                    # combine scores
+                    sim = (0.7 * phash_sim) + (0.3 * hist_sim)
+                    sim = max(0, min(sim, 1))
+                    if sim > best:
+                        best = sim
+
+            except Exception:
                 continue
 
-    return best# =========================
+    return best
+# =========================
 # TEXT SIMILARITY
 # =========================
 
@@ -60,7 +74,8 @@ def text_similarity(t1, t2):
 
     sim = cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0]
 
-    return sim# =========================
+    return sim
+# =========================
 # CATEGORY DETECTION
 # =========================
 
