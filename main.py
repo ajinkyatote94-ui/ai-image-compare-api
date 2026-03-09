@@ -1,11 +1,12 @@
 from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 import uuid
 import os
-from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
 from ai_model import compute_match
+
 
 app = FastAPI()
 
@@ -22,13 +23,53 @@ app.add_middleware(
 )
 
 
-# temp folder
-os.makedirs("/tmp", exist_ok=True)# ================================
+# temp folder (Render allows /tmp)
+os.makedirs("/tmp", exist_ok=True)
+
+
+# ================================
 # ROOT
 # ================================
 @app.get("/")
 def root():
-    return {"status": "AI running"}# ================================
+    return {"status": "FindIt AI running"}
+
+
+# ================================
+# IMAGE SAVE + VALIDATION
+# ================================
+async def save_upload_image(img: UploadFile):
+
+    if not img.content_type.startswith("image/"):
+        raise Exception("Only image files allowed")
+
+    content = await img.read()
+
+    if len(content) == 0:
+        raise Exception("Empty image")
+
+    if len(content) > 5 * 1024 * 1024:
+        raise Exception("Image too large (max 5MB)")
+
+    path = f"/tmp/{uuid.uuid4()}.jpg"
+
+    with open(path, "wb") as f:
+        f.write(content)
+
+    # verify image
+    try:
+        with Image.open(path) as im:
+            im.verify()
+    except:
+        os.remove(path)
+        raise Exception("Invalid image")
+
+    await img.close()
+
+    return path
+
+
+# ================================
 # MATCH API
 # ================================
 @app.post("/compare-match/")
@@ -58,57 +99,29 @@ async def compare_match(
 
     try:
 
-        # limit images (keep small for Render RAM)
-        images1 = images1[:2]
-        images2 = images2[:2]        # ================================
-        # SAVE IMAGES 1
+        # limit images
+        if len(images1) > 2 or len(images2) > 2:
+            return {
+                "success": False,
+                "error": "Maximum 2 images per item"
+            }
+
+        # ================================
+        # SAVE IMAGES SET 1
         # ================================
         for img in images1:
-
-            content = await img.read()
-
-            if len(content) > 5 * 1024 * 1024:
-                return {"error": "Image too large"}
-
-            path = f"/tmp/{uuid.uuid4()}.jpg"
-
-            with open(path, "wb") as f:
-                f.write(content)
-
-            # verify image
-            try:
-                Image.open(path).verify()
-            except:
-                return {"error": "Invalid image"}
-
+            path = await save_upload_image(img)
             paths1.append(path)
-            await img.close()
 
         # ================================
-        # SAVE IMAGES 2
+        # SAVE IMAGES SET 2
         # ================================
         for img in images2:
-
-            content = await img.read()
-
-            if len(content) > 5 * 1024 * 1024:
-                return {"error": "Image too large"}
-
-            path = f"/tmp/{uuid.uuid4()}.jpg"
-
-            with open(path, "wb") as f:
-                f.write(content)
-
-            try:
-                Image.open(path).verify()
-            except:
-                return {"error": "Invalid image"}
-
+            path = await save_upload_image(img)
             paths2.append(path)
-            await img.close()
 
         # ================================
-        # RUN AI MATCH
+        # RUN MATCH MODEL
         # ================================
         result = compute_match(
             paths1,
@@ -125,10 +138,17 @@ async def compare_match(
             lon2
         )
 
-        return result
+        return {
+            "success": True,
+            "data": result
+        }
 
     except Exception as e:
-        return {"error": str(e)}
+
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
     finally:
 
