@@ -40,8 +40,19 @@ def root():
 # ================================
 async def save_upload_image(img: UploadFile):
 
-    if not img.content_type.startswith("image/"):
-        raise Exception("Only image files allowed")
+    allowed_types = [
+        "image/jpeg",
+        "image/jpg",
+        "image/png",
+        "image/webp",
+        "image/bmp",
+        "image/tiff",
+        "image/gif",
+        "application/octet-stream"  # Flutter sometimes sends this
+    ]
+
+    if img.content_type not in allowed_types:
+        raise Exception("Unsupported image format")
 
     content = await img.read()
 
@@ -51,12 +62,12 @@ async def save_upload_image(img: UploadFile):
     if len(content) > 5 * 1024 * 1024:
         raise Exception("Image too large (max 5MB)")
 
-    path = f"/tmp/{uuid.uuid4()}.jpg"
+    path = f"/tmp/{uuid.uuid4()}"
 
     with open(path, "wb") as f:
         f.write(content)
 
-    # verify image
+    # verify actual image
     try:
         with Image.open(path) as im:
             im.verify()
@@ -67,7 +78,6 @@ async def save_upload_image(img: UploadFile):
     await img.close()
 
     return path
-
 
 # ================================
 # MATCH API
