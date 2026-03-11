@@ -3,6 +3,7 @@ import numpy as np
 import math
 import torch
 import torchvision.transforms as T
+import timm
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -12,7 +13,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 # LOAD DINOv2 MODEL (ONCE)
 # =========================
 
-import timm
 
 model = timm.create_model(
     "vit_small_patch14_dinov2",
