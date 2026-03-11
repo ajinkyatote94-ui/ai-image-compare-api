@@ -3,10 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 import uuid
 import os
+import traceback
 from PIL import Image
 
 from ai_model import compute_match
-
 
 app = FastAPI()
 
@@ -74,18 +74,13 @@ async def save_upload_image(img: UploadFile):
     with open(path, "wb") as f:
         f.write(content)
 
-    # verify image
     try:
-
-        with Image.open(path) as im:
-            im.verify()
-
         with Image.open(path) as im:
             im = im.convert("RGB")
-            im = im.resize((512, 512))
+            im = im.resize((224, 224))  # EfficientNet input size
             im.save(path, "JPEG")
 
-    except:
+    except Exception:
         os.remove(path)
         raise Exception("Invalid image")
 
@@ -125,24 +120,20 @@ async def compare_match(
 
     try:
 
-        # limit images
         if len(images1) > 2 or len(images2) > 2:
             return {
                 "success": False,
                 "error": "Maximum 2 images per item"
             }
 
-        # save first item images
         for img in images1:
             path = await save_upload_image(img)
             paths1.append(path)
 
-        # save second item images
         for img in images2:
             path = await save_upload_image(img)
             paths2.append(path)
 
-        # run AI model
         result = compute_match(
             paths1,
             paths2,
@@ -165,6 +156,9 @@ async def compare_match(
 
     except Exception as e:
 
+        print("AI SERVER ERROR:")
+        traceback.print_exc()
+
         return {
             "success": False,
             "error": str(e)
@@ -172,7 +166,6 @@ async def compare_match(
 
     finally:
 
-        # cleanup temp files
         for p in paths1:
             if os.path.exists(p):
                 os.remove(p)

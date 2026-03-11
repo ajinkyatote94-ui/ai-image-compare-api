@@ -18,7 +18,7 @@ device = "cpu"
 weights = EfficientNet_B0_Weights.DEFAULT
 model = efficientnet_b0(weights=weights)
 
-# remove classifier (we only want embeddings)
+# remove classifier
 model.classifier = torch.nn.Identity()
 
 model = model.to(device)
@@ -37,15 +37,17 @@ transform = T.Compose([
 
 def get_embedding(path):
 
-    img = Image.open(path).convert("RGB")
-    img = transform(img).unsqueeze(0).to(device)
+    with Image.open(path) as img:
+
+        img = img.convert("RGB")
+        img = transform(img).unsqueeze(0).to(device)
 
     with torch.no_grad():
         emb = model(img)
 
-    emb = emb.cpu().numpy()
+    emb = emb.cpu().numpy().flatten()
 
-    # normalize
+    # normalize vector
     emb = emb / np.linalg.norm(emb)
 
     return emb
@@ -60,6 +62,7 @@ def compute_image_similarity(imagesA, imagesB):
     if not imagesA or not imagesB:
         return 0
 
+    # compute embeddings once
     embA = [get_embedding(a) for a in imagesA]
     embB = [get_embedding(b) for b in imagesB]
 
