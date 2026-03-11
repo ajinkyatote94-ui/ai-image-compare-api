@@ -214,10 +214,10 @@ def compute_match(
     )
 
     return {
-        "image": image_points,
-        "title": title_points,
-        "description": desc_points,
-        "category": cat_points,
-        "location": loc_points,
-        "total": total
-    }
+    "image": float(image_points),
+    "title": float(title_points),
+    "description": float(desc_points),
+    "category": float(cat_points),
+    "location": float(loc_points),
+    "total": float(total)
+}
