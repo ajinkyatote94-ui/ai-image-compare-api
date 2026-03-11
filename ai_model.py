@@ -3,25 +3,27 @@ import numpy as np
 import math
 import torch
 import torchvision.transforms as T
-import timm
 
+from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 
 # =========================
-# LOAD DINOv2 MODEL (ONCE)
+# LOAD MODEL
 # =========================
 
-
-model = timm.create_model(
-    "vit_small_patch14_dinov2",
-    pretrained=True
-)
-
 device = "cpu"
+
+weights = EfficientNet_B0_Weights.DEFAULT
+model = efficientnet_b0(weights=weights)
+
+# remove classifier (we only want embeddings)
+model.classifier = torch.nn.Identity()
+
 model = model.to(device)
 model.eval()
+
 
 transform = T.Compose([
     T.Resize((224,224)),
@@ -32,16 +34,14 @@ transform = T.Compose([
 # =========================
 # IMAGE EMBEDDING
 # =========================
+
 def get_embedding(path):
 
     img = Image.open(path).convert("RGB")
     img = transform(img).unsqueeze(0).to(device)
 
     with torch.no_grad():
-        features = model.forward_features(img)
-
-    # CLS token
-    emb = features[:, 0]
+        emb = model(img)
 
     emb = emb.cpu().numpy()
 
@@ -54,6 +54,7 @@ def get_embedding(path):
 # =========================
 # IMAGE SIMILARITY
 # =========================
+
 def compute_image_similarity(imagesA, imagesB):
 
     if not imagesA or not imagesB:
@@ -67,7 +68,10 @@ def compute_image_similarity(imagesA, imagesB):
     for e1 in embA:
         for e2 in embB:
 
-            sim = cosine_similarity(e1.reshape(1,-1), e2.reshape(1,-1))[0][0]
+            sim = cosine_similarity(
+                e1.reshape(1,-1),
+                e2.reshape(1,-1)
+            )[0][0]
 
             if sim > best:
                 best = sim
@@ -94,7 +98,10 @@ def text_similarity(t1, t2):
 
     tfidf = vectorizer.fit_transform([t1, t2])
 
-    sim = cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0]
+    sim = cosine_similarity(
+        tfidf[0:1],
+        tfidf[1:2]
+    )[0][0]
 
     return sim
 

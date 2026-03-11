@@ -11,9 +11,9 @@ from ai_model import compute_match
 app = FastAPI()
 
 
-# ============================
-# CORS (Allow Flutter requests)
-# ============================
+# =========================
+# CORS
+# =========================
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,26 +24,26 @@ app.add_middleware(
 )
 
 
-# ============================
-# TEMP DIRECTORY (Render safe)
-# ============================
+# =========================
+# TEMP DIRECTORY
+# =========================
 
 TEMP_DIR = "/tmp"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 
-# ============================
+# =========================
 # ROOT
-# ============================
+# =========================
 
 @app.get("/")
 def root():
     return {"status": "FindIt AI running"}
 
 
-# ============================
-# IMAGE SAVE + VALIDATION
-# ============================
+# =========================
+# SAVE IMAGE
+# =========================
 
 async def save_upload_image(img: UploadFile):
 
@@ -74,10 +74,10 @@ async def save_upload_image(img: UploadFile):
     with open(path, "wb") as f:
         f.write(content)
 
-    # verify and normalize image
+    # verify image
     try:
-        with Image.open(path) as im:
 
+        with Image.open(path) as im:
             im.verify()
 
         with Image.open(path) as im:
@@ -94,9 +94,9 @@ async def save_upload_image(img: UploadFile):
     return path
 
 
-# ============================
+# =========================
 # MATCH API
-# ============================
+# =========================
 
 @app.post("/compare-match/")
 async def compare_match(
@@ -132,12 +132,12 @@ async def compare_match(
                 "error": "Maximum 2 images per item"
             }
 
-        # save images set 1
+        # save first item images
         for img in images1:
             path = await save_upload_image(img)
             paths1.append(path)
 
-        # save images set 2
+        # save second item images
         for img in images2:
             path = await save_upload_image(img)
             paths2.append(path)
