@@ -11,9 +11,10 @@ from ai_model import compute_match
 app = FastAPI()
 
 
-# ================================
-# CORS
-# ================================
+# ============================
+# CORS (Allow Flutter requests)
+# ============================
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,21 +24,27 @@ app.add_middleware(
 )
 
 
-# temp folder (Render allows /tmp)
-os.makedirs("/tmp", exist_ok=True)
+# ============================
+# TEMP DIRECTORY (Render safe)
+# ============================
+
+TEMP_DIR = "/tmp"
+os.makedirs(TEMP_DIR, exist_ok=True)
 
 
-# ================================
+# ============================
 # ROOT
-# ================================
+# ============================
+
 @app.get("/")
 def root():
     return {"status": "FindIt AI running"}
 
 
-# ================================
+# ============================
 # IMAGE SAVE + VALIDATION
-# ================================
+# ============================
+
 async def save_upload_image(img: UploadFile):
 
     allowed_types = [
@@ -48,7 +55,7 @@ async def save_upload_image(img: UploadFile):
         "image/bmp",
         "image/tiff",
         "image/gif",
-        "application/octet-stream"  # Flutter sometimes sends this
+        "application/octet-stream"
     ]
 
     if img.content_type not in allowed_types:
@@ -62,15 +69,22 @@ async def save_upload_image(img: UploadFile):
     if len(content) > 5 * 1024 * 1024:
         raise Exception("Image too large (max 5MB)")
 
-    path = f"/tmp/{uuid.uuid4()}"
+    path = f"{TEMP_DIR}/{uuid.uuid4()}.jpg"
 
     with open(path, "wb") as f:
         f.write(content)
 
-    # verify actual image
+    # verify and normalize image
     try:
         with Image.open(path) as im:
+
             im.verify()
+
+        with Image.open(path) as im:
+            im = im.convert("RGB")
+            im = im.resize((512, 512))
+            im.save(path, "JPEG")
+
     except:
         os.remove(path)
         raise Exception("Invalid image")
@@ -79,9 +93,11 @@ async def save_upload_image(img: UploadFile):
 
     return path
 
-# ================================
+
+# ============================
 # MATCH API
-# ================================
+# ============================
+
 @app.post("/compare-match/")
 async def compare_match(
 
@@ -116,23 +132,17 @@ async def compare_match(
                 "error": "Maximum 2 images per item"
             }
 
-        # ================================
-        # SAVE IMAGES SET 1
-        # ================================
+        # save images set 1
         for img in images1:
             path = await save_upload_image(img)
             paths1.append(path)
 
-        # ================================
-        # SAVE IMAGES SET 2
-        # ================================
+        # save images set 2
         for img in images2:
             path = await save_upload_image(img)
             paths2.append(path)
 
-        # ================================
-        # RUN MATCH MODEL
-        # ================================
+        # run AI model
         result = compute_match(
             paths1,
             paths2,
@@ -162,9 +172,7 @@ async def compare_match(
 
     finally:
 
-        # ================================
-        # CLEAN TEMP FILES
-        # ================================
+        # cleanup temp files
         for p in paths1:
             if os.path.exists(p):
                 os.remove(p)

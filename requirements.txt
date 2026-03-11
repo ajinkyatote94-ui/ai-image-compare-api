@@ -1,7 +1,8 @@
 fastapi
-uvicorn[standard]
+uvicorn
 pillow
 numpy
+torch
+torchvision
 scikit-learn
-imagehash
 python-multipart
