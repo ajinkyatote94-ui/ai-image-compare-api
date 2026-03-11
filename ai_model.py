@@ -12,11 +12,15 @@ from sklearn.metrics.pairwise import cosine_similarity
 # LOAD DINOv2 MODEL (ONCE)
 # =========================
 
-model = torch.hub.load(
-    "facebookresearch/dinov2",
-    "dinov2_vits14"
+import timm
+
+model = timm.create_model(
+    "vit_small_patch14_dinov2",
+    pretrained=True
 )
 
+device = "cpu"
+model = model.to(device)
 model.eval()
 
 transform = T.Compose([
@@ -28,16 +32,17 @@ transform = T.Compose([
 # =========================
 # IMAGE EMBEDDING
 # =========================
-
 def get_embedding(path):
 
     img = Image.open(path).convert("RGB")
-    img = transform(img).unsqueeze(0)
+    img = transform(img).unsqueeze(0).to(device)
 
     with torch.no_grad():
-        emb = model(img)
+        emb = model.forward_features(img)
 
-    return emb.numpy()
+    emb = emb.cpu().numpy()
+
+    return emb
 
 
 # =========================
