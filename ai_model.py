@@ -38,9 +38,15 @@ def get_embedding(path):
     img = transform(img).unsqueeze(0).to(device)
 
     with torch.no_grad():
-        emb = model.forward_features(img)
+        features = model.forward_features(img)
+
+    # CLS token
+    emb = features[:, 0]
 
     emb = emb.cpu().numpy()
+
+    # normalize
+    emb = emb / np.linalg.norm(emb)
 
     return emb
 
@@ -48,28 +54,23 @@ def get_embedding(path):
 # =========================
 # IMAGE SIMILARITY
 # =========================
-
 def compute_image_similarity(imagesA, imagesB):
 
     if not imagesA or not imagesB:
         return 0
 
+    embA = [get_embedding(a) for a in imagesA]
+    embB = [get_embedding(b) for b in imagesB]
+
     best = 0
 
-    for a in imagesA:
-        for b in imagesB:
+    for e1 in embA:
+        for e2 in embB:
 
-            try:
-                emb1 = get_embedding(a)
-                emb2 = get_embedding(b)
+            sim = cosine_similarity(e1.reshape(1,-1), e2.reshape(1,-1))[0][0]
 
-                sim = cosine_similarity(emb1, emb2)[0][0]
-
-                if sim > best:
-                    best = sim
-
-            except Exception:
-                continue
+            if sim > best:
+                best = sim
 
     return best
 
